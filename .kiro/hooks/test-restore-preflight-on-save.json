@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Test restore preflight on save",
+      "trigger": "PostFileSave",
+      "description": "Runs the focused semantic package tests whenever Obituary implementation Go files are saved.",
+      "matcher": "^internal/obituary/.*\\.go$",
+      "action": {
+        "type": "command",
+        "command": "go test ./internal/obituary",
+        "timeout": 120
+      }
+    }
+  ]
+}
