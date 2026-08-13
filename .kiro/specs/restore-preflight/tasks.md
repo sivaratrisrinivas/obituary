@@ -27,7 +27,7 @@ At the end of every slice, record:
     - Known unsupported states: all production analysis, report, evidence-search, repository-precondition, and transformation semantics remain unimplemented for task 2 and later.
     - Files and local commit changed: `go.mod` and `internal/obituary/analyze_test.go` in `960e6a1`; this task record documents the intentional red checkpoint before Task 2.
 
-- [ ] 2. Recognize commands and pass the first complete casualty oracle
+- [x] 2. Recognize commands and pass the first complete casualty oracle
   - Define validated report variants and the `Analyze(ctx, cwd, argv)` seam.
   - Recognize only the four exact supported argv forms; add table tests for near misses.
   - Implement the minimum read-only worktree-versus-index inspection needed to identify the first casualty.
@@ -35,6 +35,13 @@ At the end of every slice, record:
   - Assert that analysis leaves worktree, index, and refs unchanged.
   - _Requirements: R1, R2, R3, R5, R6_
   - _Dependencies: 1_
+  - **Completion record (2026-08-13):**
+    - Behavior added: introduced the validated `Analyze(ctx, cwd, argv) Report` seam with structurally distinct complete, unknown, and search-incomplete variants; recognized exactly the four accepted argv forms; rejected representative near misses; and made the first repository-root `git restore .` oracle return one exact current-content casualty with text delta metadata and bounded negative evidence.
+    - Git semantics relied upon: `git diff-files --raw -z` identifies the tracked worktree modification relative to the index; `git ls-files --stage -z` and batched `git cat-file --batch` expose the replacement object; local branch, tag, and stash refs bound the reachable same-path search; the fixture's historical and index bytes differ from the casualty.
+    - Safety invariant protected: inspection uses direct argv, `LC_ALL=C`, `GIT_OPTIONAL_LOCKS=0`, and `GIT_NO_LAZY_FETCH=1`; relevant transformation/configuration checks precede raw-byte comparison; unresolved states return whole-analysis `UNKNOWN`; the oracle proves worktree bytes/mode, exact index bytes, and refs remain unchanged.
+    - Test evidence: `go test -count=1 ./...`, `go test -race -count=1 ./...`, and `go vet ./...` pass; focused tests cover the paired real-Git casualty oracle, bounded wording, exact command recognition, near-miss refusal, canceled-context `SEARCH_INCOMPLETE`, and protected-state equality.
+    - Known unsupported states: only the first root-level, single modified `100644` text-file `git restore .` scenario can complete in this slice. The other three accepted forms are recognized but await Task 3 oracle coverage; broader casualty/non-casualty semantics and positive branch/tag/stash mode-and-locator resolution remain conservatively `UNKNOWN` for later tasks. The CLI is not implemented.
+    - Files and local commit changed: `internal/obituary/analyze.go`, `git.go`, `report.go`, and `analyze_test.go`, plus this task record and `README.md`. Local commit subject: `feat: pass first complete casualty oracle`.
 
 - [ ] 3. Complete core casualty and non-casualty semantics
   - Run the paired real-Git oracle under all four supported argv forms, including both `--` variants.

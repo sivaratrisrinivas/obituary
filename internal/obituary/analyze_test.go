@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,7 @@ type repositoryFixture struct {
 	path         string
 	indexBytes   []byte
 	indexContent []byte
+	refs         []byte
 	worktree     fileState
 }
 
@@ -69,16 +71,99 @@ func TestAnalyzeRestoreDotReportsOverwrittenUnstagedContent(t *testing.T) {
 		t.Fatal("oracle index snapshot is empty")
 	}
 
-	t.Log("fixture and real-Git oracle validated; reaching the expected Analyze red sentinel")
+	report := Analyze(ctx, analyzed.path, []string{"git", "restore", "."})
+	assertAnalysisReadOnly(t, ctx, analyzed, fixture.path)
 
-	// RED: Task 2 replaces this sentinel with a call through the pre-agreed seam:
-	//
-	//	report := Analyze(ctx, analyzed.path, []string{"git", "restore", "."})
-	//
-	// and compares the report's sole casualty with the independently derived
-	// before state above. Keeping the sentinel at runtime lets this test prove
-	// that fixture construction and the real-Git oracle succeed first.
-	t.Fatal("RED: Analyze(context.Context, cwd, argv) Report behavior is absent")
+	complete, ok := report.(CompleteReport)
+	if !ok {
+		t.Fatalf("Analyze outcome = %T, want CompleteReport", report)
+	}
+	casualties := complete.Casualties()
+	if len(casualties) != 1 {
+		t.Fatalf("casualty count = %d, want 1", len(casualties))
+	}
+
+	casualty := casualties[0]
+	if casualty.Path() != fixture.path {
+		t.Fatalf("casualty path = %q, want %q", casualty.Path(), fixture.path)
+	}
+	if !bytes.Equal(casualty.Content(), before.bytes) {
+		t.Fatalf("casualty bytes = %q, want oracle before bytes %q", casualty.Content(), before.bytes)
+	}
+	wantExecutable := before.mode.Perm()&0o111 != 0
+	if casualty.Executable() != wantExecutable {
+		t.Fatalf("casualty executable = %t, want mode-compatible value from %v", casualty.Executable(), before.mode)
+	}
+	delta, ok := casualty.Delta().(TextDelta)
+	if !ok {
+		t.Fatalf("casualty delta = %T, want TextDelta", casualty.Delta())
+	}
+	if delta.Additions() != 1 || delta.Deletions() != 0 {
+		t.Fatalf("casualty delta = +%d/-%d, want +1/-0", delta.Additions(), delta.Deletions())
+	}
+	negative, ok := casualty.Evidence().(NoExactSamePathCopyFound)
+	if !ok {
+		t.Fatalf("casualty evidence = %T, want NoExactSamePathCopyFound", casualty.Evidence())
+	}
+	if negative.Claim() != NoExactCopyClaim {
+		t.Fatalf("negative claim = %q, want %q", negative.Claim(), NoExactCopyClaim)
+	}
+	if negative.NotChecked() != NotCheckedClaim {
+		t.Fatalf("not-checked disclosure = %q, want %q", negative.NotChecked(), NotCheckedClaim)
+	}
+}
+
+func TestAnalyzeRecognizesOnlyExactSupportedCommands(t *testing.T) {
+	t.Parallel()
+
+	supported := [][]string{
+		{"git", "restore", "."},
+		{"git", "restore", "--", "."},
+		{"git", "checkout", "."},
+		{"git", "checkout", "--", "."},
+	}
+	for _, argv := range supported {
+		argv := append([]string(nil), argv...)
+		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+
+			report := Analyze(ctx, t.TempDir(), argv)
+			if _, ok := report.(SearchIncompleteReport); !ok {
+				t.Fatalf("Analyze(%q) outcome = %T, want SearchIncompleteReport proving command recognition", argv, report)
+			}
+		})
+	}
+
+	unsupported := []struct {
+		name string
+		argv []string
+	}{
+		{name: "empty", argv: nil},
+		{name: "different executable", argv: []string{"/usr/bin/git", "restore", "."}},
+		{name: "different subcommand", argv: []string{"git", "reset", "."}},
+		{name: "flag", argv: []string{"git", "restore", "--worktree", "."}},
+		{name: "missing pathspec", argv: []string{"git", "restore"}},
+		{name: "different pathspec", argv: []string{"git", "restore", "./note.txt"}},
+		{name: "treeish", argv: []string{"git", "checkout", "HEAD", "--", "."}},
+		{name: "extra argument", argv: []string{"git", "restore", ".", "other"}},
+		{name: "wrong ordering", argv: []string{"git", "restore", ".", "--"}},
+	}
+	for _, test := range unsupported {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			report := Analyze(context.Background(), filepath.Join(t.TempDir(), "does-not-exist"), test.argv)
+			unknown, ok := report.(UnknownReport)
+			if !ok {
+				t.Fatalf("Analyze(%q) outcome = %T, want UnknownReport", test.argv, report)
+			}
+			if unknown.Reason() != UnsupportedCommand {
+				t.Fatalf("Analyze(%q) reason = %q, want %q", test.argv, unknown.Reason(), UnsupportedCommand)
+			}
+		})
+	}
 }
 
 func buildRepository(t *testing.T, ctx context.Context, fixture restoreFixture) repositoryFixture {
@@ -114,12 +199,34 @@ func buildRepository(t *testing.T, ctx context.Context, fixture restoreFixture) 
 		t.Fatalf("read exact index file bytes: %v", err)
 	}
 	indexContent := runGitOutput(t, ctx, dir, "show", "--no-textconv", ":"+fixture.path)
+	refs := runGitOutput(t, ctx, dir, "for-each-ref", "--format=%(refname)%00%(objectname)%00")
 
 	return repositoryFixture{
 		path:         dir,
 		indexBytes:   indexBytes,
 		indexContent: indexContent,
+		refs:         refs,
 		worktree:     snapshotFile(t, path),
+	}
+}
+
+func assertAnalysisReadOnly(t *testing.T, ctx context.Context, before repositoryFixture, relativePath string) {
+	t.Helper()
+
+	afterWorktree := snapshotFile(t, filepath.Join(before.path, relativePath))
+	if !bytes.Equal(afterWorktree.bytes, before.worktree.bytes) || afterWorktree.mode != before.worktree.mode {
+		t.Fatalf("Analyze mutated worktree state: before bytes/mode = %q/%v, after = %q/%v", before.worktree.bytes, before.worktree.mode, afterWorktree.bytes, afterWorktree.mode)
+	}
+	afterIndex, err := os.ReadFile(filepath.Join(before.path, ".git", "index"))
+	if err != nil {
+		t.Fatalf("read index after Analyze: %v", err)
+	}
+	if !bytes.Equal(afterIndex, before.indexBytes) {
+		t.Fatal("Analyze mutated exact index bytes")
+	}
+	afterRefs := runGitOutput(t, ctx, before.path, "for-each-ref", "--format=%(refname)%00%(objectname)%00")
+	if !bytes.Equal(afterRefs, before.refs) {
+		t.Fatalf("Analyze mutated refs: before = %q, after = %q", before.refs, afterRefs)
 	}
 }
 

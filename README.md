@@ -7,7 +7,7 @@ Obituary is a local, explicitly invoked Git preflight. For a deliberately narrow
 Obituary is not a transparent Git wrapper, a recovery service, or a security boundary. Direct Git invocation remains the explicit bypass.
 
 > [!IMPORTANT]
-> **Current status: Task 1 complete.** The Go module and first paired real-Git oracle are implemented. The oracle is an intentional red checkpoint: it validates Git's overwrite behavior, then fails at the explicit missing-`Analyze` sentinel that Task 2 will replace. The CLI and production analysis are not implemented yet, so the commands below describe the accepted interface rather than a runnable release.
+> **Current status: Task 2 complete.** The first production `Analyze` slice now recognizes exactly the four accepted Git argv forms, rejects near misses, and passes the paired real-Git oracle for one repository-root `git restore .` casualty with bounded negative evidence and zero worktree/index/ref mutation. Broader casualty semantics, positive historical locators, and the CLI remain later tasks, so the commands below still describe the accepted interface rather than a runnable release.
 
 ## The problem
 
@@ -123,7 +123,7 @@ Relevant filters, `working-tree-encoding`, or unsafe EOL conversion produce `UNK
 
 ## Architecture
 
-Obituary is a Go standard-library module backed by the installed Git executable as the semantic authority. The production CLI and analyzer remain planned work.
+Obituary is a Go standard-library module backed by the installed Git executable as the semantic authority. The first analyzer slice is implemented; the production CLI remains planned work.
 
 The primary seam is intentionally small:
 
@@ -139,18 +139,20 @@ See the accepted design in [`.kiro/specs/restore-preflight/design.md`](.kiro/spe
 
 ## Current verification
 
-Task 1 requires Go 1.26 and the installed Git executable:
+Task 2 requires Go 1.26 and the installed Git executable:
 
 ```sh
-# Proves the package compiles while the intentional red test is excluded.
-go test -run '^$' ./internal/obituary
+# Runs the exact-command table and paired real-Git casualty oracle.
+go test -count=1 ./...
 
-# Validates the fixture and real-Git oracle, then fails only at the
-# explicit missing-Analyze sentinel reserved for Task 2.
-go test -count=1 -v ./internal/obituary
+# Repeats the package under the race detector and performs static analysis.
+go test -race -count=1 ./...
+go vet ./...
 ```
 
-The full test command is expected to remain red until Task 2 implements the pre-agreed `Analyze` seam. Task 1 is successful only when its log reaches `fixture and real-Git oracle validated` before that sentinel.
+The oracle now calls `Analyze`, compares its sole casualty with the independently derived pre-restore bytes and mode, verifies the required bounded negative evidence, and proves analysis leaves worktree state, exact index bytes, and refs unchanged.
+
+This remains a deliberately narrow green slice. Only the first root-level, single modified `100644` text-file `git restore .` fixture can currently return `COMPLETE`; other recognized forms and broader states conservatively return `UNKNOWN` until their later paired-oracle tasks land.
 
 ## Verification strategy
 
@@ -198,7 +200,7 @@ The repository treats the Kiro artifacts as executable project history rather th
 - [structure steering](.kiro/steering/structure.md) protects the single deep module;
 - [safety invariants](.kiro/steering/safety-invariants.md) establish release-blocking guarantees;
 - [requirements](.kiro/specs/restore-preflight/requirements.md), [design](.kiro/specs/restore-preflight/design.md), and [tasks](.kiro/specs/restore-preflight/tasks.md) form the accepted `restore-preflight` spec;
-- [the save hook](.kiro/hooks/test-restore-preflight-on-save.json) runs the focused semantic package test when `internal/obituary` Go files are saved; it shares Task 1's intentional red state until Task 2 implements `Analyze`.
+- [the save hook](.kiro/hooks/test-restore-preflight-on-save.json) runs the focused semantic package test when `internal/obituary` Go files are saved; Task 2 has turned its inherited red oracle green through `Analyze`.
 
 Each implementation slice must record the behavior added, Git semantics relied upon, protected invariant, test evidence, known unsupported states, and files and local commit changed.
 
@@ -213,10 +215,10 @@ CONTEXT.md                       domain glossary and core invariants
 docs/agents/                     agent workflow conventions
 docs/adr/                        architecture decision records
 go.mod                           Go module definition
-internal/obituary/analyze_test.go first paired real-Git oracle
+internal/obituary/               first production analysis slice and paired oracle
 ```
 
-The remaining planned product layout is documented in [`.kiro/steering/structure.md`](.kiro/steering/structure.md). Production analyzer and command files do not exist yet.
+The CLI and remaining product layout are documented in [`.kiro/steering/structure.md`](.kiro/steering/structure.md).
 
 ## Development status
 
@@ -225,8 +227,9 @@ The remaining planned product layout is documented in [`.kiro/steering/structure
 - [x] Requirements, design, and incremental task plan committed
 - [x] Focused Kiro test hook created
 - [x] Go module initialized
-- [x] First paired real-Git oracle validated at its intentional red checkpoint
-- [ ] `Analyze` implementation started
+- [x] First paired real-Git oracle passes through `Analyze`
+- [x] Exact command recognition and first bounded-negative casualty slice implemented
+- [ ] Core casualty and non-casualty matrix completed
 - [ ] CLI implemented
 - [ ] Adversarial release gates passing
 - [ ] Reproducible build and release available
