@@ -7,7 +7,7 @@ Obituary is a local, explicitly invoked Git preflight. For a deliberately narrow
 Obituary is not a transparent Git wrapper, a recovery service, or a security boundary. Direct Git invocation remains the explicit bypass.
 
 > [!IMPORTANT]
-> **Current status: specification-first foundation.** The product contract, safety steering, implementation plan, and Kiro hook are committed. The Go module, executable, and real-Git oracle are not implemented yet. The commands below describe the accepted interface, not a currently runnable release.
+> **Current status: Task 1 complete.** The Go module and first paired real-Git oracle are implemented. The oracle is an intentional red checkpoint: it validates Git's overwrite behavior, then fails at the explicit missing-`Analyze` sentinel that Task 2 will replace. The CLI and production analysis are not implemented yet, so the commands below describe the accepted interface rather than a runnable release.
 
 ## The problem
 
@@ -123,7 +123,7 @@ Relevant filters, `working-tree-encoding`, or unsafe EOL conversion produce `UNK
 
 ## Architecture
 
-Obituary is planned as a Go standard-library CLI backed by the installed Git executable as the semantic authority.
+Obituary is a Go standard-library module backed by the installed Git executable as the semantic authority. The production CLI and analyzer remain planned work.
 
 The primary seam is intentionally small:
 
@@ -133,13 +133,28 @@ func Analyze(ctx context.Context, cwd string, argv []string) Report
 
 One deep `internal/obituary` module will own command recognition, repository preconditions, Git plumbing, casualty identity, exact evidence, deadlines, and truthful result classification. The command layer will only parse the Obituary mode, call `Analyze`, render the report, prompt, and dispatch Git after explicit confirmation.
 
-Git inspection must use direct argv execution, stable NUL-delimited formats, `LC_ALL=C`, `GIT_OPTIONAL_LOCKS=0`, and read-only plumbing. Tests will exercise `Analyze` against real disposable repositories rather than a mocked Git adapter.
+Git inspection must use direct argv execution, stable NUL-delimited formats, `LC_ALL=C`, `GIT_OPTIONAL_LOCKS=0`, and read-only plumbing. The first test already builds paired disposable repositories and uses real Git for its oracle; Task 2 will connect that oracle to `Analyze` rather than introduce a mocked Git adapter.
 
 See the accepted design in [`.kiro/specs/restore-preflight/design.md`](.kiro/specs/restore-preflight/design.md).
 
+## Current verification
+
+Task 1 requires Go 1.26 and the installed Git executable:
+
+```sh
+# Proves the package compiles while the intentional red test is excluded.
+go test -run '^$' ./internal/obituary
+
+# Validates the fixture and real-Git oracle, then fails only at the
+# explicit missing-Analyze sentinel reserved for Task 2.
+go test -count=1 -v ./internal/obituary
+```
+
+The full test command is expected to remain red until Task 2 implements the pre-agreed `Analyze` seam. Task 1 is successful only when its log reaches `fixture and real-Git oracle validated` before that sentinel.
+
 ## Verification strategy
 
-The release oracle will generate two disposable repositories from the same declarative fixture:
+The paired-repository oracle established in Task 1 generates two disposable repositories from the same declarative fixture. As subsequent tasks connect and expand it, the release flow will:
 
 1. analyze repository A with Obituary;
 2. execute the real supported Git command in repository B;
@@ -183,7 +198,7 @@ The repository treats the Kiro artifacts as executable project history rather th
 - [structure steering](.kiro/steering/structure.md) protects the single deep module;
 - [safety invariants](.kiro/steering/safety-invariants.md) establish release-blocking guarantees;
 - [requirements](.kiro/specs/restore-preflight/requirements.md), [design](.kiro/specs/restore-preflight/design.md), and [tasks](.kiro/specs/restore-preflight/tasks.md) form the accepted `restore-preflight` spec;
-- [the save hook](.kiro/hooks/test-restore-preflight-on-save.json) is prepared to run focused semantic tests once `internal/obituary` exists.
+- [the save hook](.kiro/hooks/test-restore-preflight-on-save.json) runs the focused semantic package test when `internal/obituary` Go files are saved; it shares Task 1's intentional red state until Task 2 implements `Analyze`.
 
 Each implementation slice must record the behavior added, Git semantics relied upon, protected invariant, test evidence, known unsupported states, and files and local commit changed.
 
@@ -197,9 +212,11 @@ Each implementation slice must record the behavior added, Git semantics relied u
 CONTEXT.md                       domain glossary and core invariants
 docs/agents/                     agent workflow conventions
 docs/adr/                        architecture decision records
+go.mod                           Go module definition
+internal/obituary/analyze_test.go first paired real-Git oracle
 ```
 
-The planned product layout is documented in [`.kiro/steering/structure.md`](.kiro/steering/structure.md). Product source directories do not exist yet.
+The remaining planned product layout is documented in [`.kiro/steering/structure.md`](.kiro/steering/structure.md). Production analyzer and command files do not exist yet.
 
 ## Development status
 
@@ -207,11 +224,11 @@ The planned product layout is documented in [`.kiro/steering/structure.md`](.kir
 - [x] Domain language and safety invariants recorded
 - [x] Requirements, design, and incremental task plan committed
 - [x] Focused Kiro test hook created
-- [ ] Go module initialized
-- [ ] First paired real-Git oracle test red
+- [x] Go module initialized
+- [x] First paired real-Git oracle validated at its intentional red checkpoint
 - [ ] `Analyze` implementation started
 - [ ] CLI implemented
 - [ ] Adversarial release gates passing
 - [ ] Reproducible build and release available
 
-Until those implementation items are complete, there is no installation command or working binary to advertise.
+Until the remaining implementation items are complete, there is no installation command or working binary to advertise.
