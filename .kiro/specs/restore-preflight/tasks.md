@@ -1,6 +1,6 @@
 # Restore Preflight Implementation Plan
 
-Each task is a small vertical slice. Work test-first: establish a failing observable behavior, implement only enough to pass it, run focused verification, and commit the green slice locally. Do not publish or push without separate authorization.
+Each task is a small vertical slice. Work test-first: establish a failing observable behavior, implement only enough to pass it, run focused verification, and commit the green slice locally. Task 1 is the sole exception: it commits the validated red oracle that Task 2 turns green through the pre-agreed `Analyze` seam. Do not publish or push without separate authorization.
 
 At the end of every slice, record:
 
@@ -11,7 +11,7 @@ At the end of every slice, record:
 - known unsupported states;
 - files and local commit changed.
 
-- [ ] 1. Establish the Go module and paired repository oracle
+- [x] 1. Establish the Go module and paired repository oracle
   - Initialize the local Go module as `obituary` and add only the directories needed by the first test.
   - Build a declarative fixture capable of generating two independent disposable Git repositories with identical relevant state.
   - Capture exact worktree bytes/modes and index bytes before analysis; execute real Git only in the oracle repository.
@@ -19,6 +19,13 @@ At the end of every slice, record:
   - Verify that the test fails because `Analyze` behavior is absent, not because the fixture is invalid.
   - _Requirements: R2, R3, R12_
   - _Dependencies: none_
+  - **Completion record (2026-08-12):**
+    - Behavior added: initialized module `obituary`; added a declarative fixture that independently creates analyzed and oracle repositories and derives one overwritten worktree state from real Git.
+    - Git semantics relied upon: repository-root `git restore .` replaces the tracked unstaged regular-file bytes with index bytes; in this fixture it preserves mode `0644`.
+    - Safety invariant protected: the proposed destructive command runs only in the disposable oracle repository; the paired analyzed repository is not restored.
+    - Test evidence: `go test -run '^$' ./internal/obituary` passes compilation; `go test -count=1 -v ./internal/obituary` validates the fixture and oracle, then fails only at the explicit absent-`Analyze` red sentinel.
+    - Known unsupported states: all production analysis, report, evidence-search, repository-precondition, and transformation semantics remain unimplemented for task 2 and later.
+    - Files and local commit changed: `go.mod` and `internal/obituary/analyze_test.go` in `960e6a1`; this task record documents the intentional red checkpoint before Task 2.
 
 - [ ] 2. Recognize commands and pass the first complete casualty oracle
   - Define validated report variants and the `Analyze(ctx, cwd, argv)` seam.
